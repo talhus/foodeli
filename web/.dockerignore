@@ -1,0 +1,11 @@
+.git
+.gitignore
+README.md
+PROGRESS.md
+.env
+.env.local
+.env.*
+.next/
+node_modules/
+*.log
+.DS_Store

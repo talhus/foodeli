@@ -1,0 +1,124 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: foodeli-postgres
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-foodeli}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-foodeli_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-foodeli_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/000001_init_schema.up.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./migrations/seed_finland_data.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+      - ./migrations/create_admin_user.sql:/docker-entrypoint-initdb.d/03_admin.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-foodeli} -d ${POSTGRES_DB:-foodeli_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - foodeli-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: foodeli-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - foodeli-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: foodeli-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - foodeli-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: foodeli-api
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      SERVER_PORT: "8080"
+      SERVER_ENV: "production"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-foodeli}:${POSTGRES_PASSWORD:-foodeli_secret}@postgres:5432/${POSTGRES_DB:-foodeli_db}?sslmode=disable"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_PASS: ""
+      REDIS_DB: "0"
+      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/"
+      RABBITMQ_EXCHANGE: "foodeli.events"
+      JWT_SECRET: "${JWT_SECRET:-foodeli_super_secret_jwt_key_2026_prod}"
+      JWT_EXPIRATION_HOURS: "72"
+      # TyrFintech B2B Integration Configuration
+      TYRFINTECH_URL: "${TYRFINTECH_URL:-http://localhost:8081}"
+      TYRFINTECH_API_KEY: "${TYRFINTECH_API_KEY:-foodeli_secret_key_prod}"
+      TYRFINTECH_CALLBACK_URL: "${TYRFINTECH_CALLBACK_URL:-http://localhost:3000/orders/callback}"
+      TYRFINTECH_WEBHOOK_URL: "${TYRFINTECH_WEBHOOK_URL:-http://localhost:8080/api/v1/webhooks/tyrfintech}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - foodeli-network
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}"
+    container_name: foodeli-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: "production"
+      PORT: "3000"
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - foodeli-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  foodeli-network:
+    name: foodeli-network
+    driver: bridge

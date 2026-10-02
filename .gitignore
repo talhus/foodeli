@@ -1,0 +1,14 @@
+.env
+.env.local
+PROGRESS.md
+
+# Build & Runtime
+bin/
+coverage.out
+*.log
+tmp/
+.DS_Store
+
+# Frontend
+web/.next/
+web/node_modules/

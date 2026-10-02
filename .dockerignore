@@ -1,0 +1,11 @@
+.git
+.gitignore
+README.md
+PROGRESS.md
+.env
+.env.*
+bin/
+tmp/
+coverage.out
+*.log
+.DS_Store
